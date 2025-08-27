@@ -120,11 +120,13 @@ private:
         if (!params.contains("mode")) {
             // 发送错误响应
             json response = {
-                {"type", "stream_mode_status"},
+                {"type", "streamModeStatus"},
                 {"requestId", requestId},
-                {"success", false},
-                {"error", "Missing mode parameter"},
-                {"current_mode", m_current_stream_mode}
+                {"status", "error"},
+                {"errorMessage", "Missing mode parameter"},
+                {"data", {
+                    {"currentMode", m_current_stream_mode}
+                }}
             };
             
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -145,10 +147,12 @@ private:
             
             // 发送成功响应
             json response = {
-                {"type", "stream_mode_status"},
+                {"type", "streamModeStatus"},
                 {"requestId", requestId},
-                {"success", true},
-                {"current_mode", m_current_stream_mode}
+                {"status", "success"},
+                {"data", {
+                    {"currentMode", m_current_stream_mode}
+                }}
             };
             
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -156,11 +160,13 @@ private:
         } else {
             // 发送错误响应
             json response = {
-                {"type", "stream_mode_status"},
+                {"type", "streamModeStatus"},
                 {"requestId", requestId},
-                {"success", false},
-                {"error", "Invalid mode: " + mode + ". Valid modes are: continuous, trigger, snapshot"},
-                {"current_mode", m_current_stream_mode}
+                {"status", "error"},
+                {"errorMessage", "Invalid mode: " + mode + ". Valid modes are: continuous, trigger, snapshot"},
+                {"data", {
+                    {"currentMode", m_current_stream_mode}
+                }}
             };
             
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -174,9 +180,12 @@ private:
         
         // 发送当前取流模式
         json response = {
-            {"type", "stream_mode_status"},
+            {"type", "streamModeStatus"},
             {"requestId", requestId},
-            {"mode", m_current_stream_mode}
+            {"status", "success"},
+            {"data", {
+                {"mode", m_current_stream_mode}
+            }}
         };
         
         m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -188,21 +197,24 @@ private:
         std::cout << "处理获取设备状态请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
         // 模拟设备状态信息
-        json status = {
-            {"device_id", "DEV12345"},
-            {"firmware_version", "2.5.1"},
+        json deviceStatus = {
+            {"deviceId", "DEV12345"},
+            {"firmwareVersion", "2.5.1"},
             {"temperature", 36.7},
             {"uptime", 12345},
-            {"stream_mode", m_current_stream_mode},
-            {"is_calibrated", true},
+            {"streamMode", m_current_stream_mode},
+            {"isCalibrated", true},
             {"battery", 85}
         };
         
         // 发送设备状态响应
         json response = {
-            {"type", "device_status_response"},
+            {"type", "deviceStatusResponse"},
             {"requestId", requestId},
-            {"status", status}
+            {"status", "success"},
+            {"data", {
+                {"deviceStatus", deviceStatus}
+            }}
         };
         
         m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -215,7 +227,7 @@ private:
         
         // 立即发送校准开始状态
         json start_response = {
-            {"type", "calibration_status"},
+            {"type", "calibrationStatus"},
             {"requestId", requestId},
             {"status", "calibrating"},
             {"progress", 0}
@@ -226,8 +238,8 @@ private:
         // 启动校准任务
         std::thread([this, hdl, requestId, params]() {
             // 模拟校准过程
-            std::string calibration_type = params.value("type", "standard");
-            int steps = (calibration_type == "full") ? 5 : 3;
+            std::string calibrationType = params.value("type", "standard");
+            int steps = (calibrationType == "full") ? 5 : 3;
             
             for (int i = 1; i <= steps; i++) {
                 // 每步暂停一段时间
@@ -236,7 +248,7 @@ private:
                 // 发送进度更新
                 int progress = (i * 100) / steps;
                 json progress_response = {
-                    {"type", "calibration_status"},
+                    {"type", "calibrationStatus"},
                     {"requestId", requestId},
                     {"status", "calibrating"},
                     {"progress", progress}
@@ -248,16 +260,16 @@ private:
             // 校准完成
             json result = {
                 {"success", true},
-                {"calibration_type", calibration_type},
+                {"calibrationType", calibrationType},
                 {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()},
                 {"offset", 0.05}
             };
             
             json complete_response = {
-                {"type", "calibration_status"},
+                {"type", "calibrationStatus"},
                 {"requestId", requestId},
                 {"status", "done"},
-                {"result", result}
+                {"data", result}
             };
             
             m_server.send(hdl, complete_response.dump(), websocketpp::frame::opcode::text);
@@ -285,30 +297,30 @@ private:
                       << " (" << readableTime << ")" << std::endl;
             
             // 根据消息类型分发处理
-            if (type == "measure_request") {
+            if (type == "measureRequest") {
                 // 处理测量请求
-                json params = message.value("payload", json());
+                json params = message.value("params", json());
                 handle_measure_request(hdl, requestId, params);
-            } else if (type == "set_stream_mode") {
+            } else if (type == "setStreamMode") {
                 // 处理设置取流模式请求
-                json params = message.value("payload", json());
+                json params = message.value("params", json());
                 handle_set_stream_mode(hdl, requestId, params);
-            } else if (type == "get_stream_mode") {
+            } else if (type == "getStreamMode") {
                 // 处理获取取流模式请求
                 handle_get_stream_mode(hdl, requestId);
-            } else if (type == "device_status") {
+            } else if (type == "deviceStatus") {
                 // 处理获取设备状态请求
                 handle_device_status(hdl, requestId);
             } else if (type == "calibrate") {
                 // 处理校准请求
-                json params = message.value("payload", json());
+                json params = message.value("params", json());
                 handle_calibrate(hdl, requestId, params);
             } else {
                 // 未知命令类型
                 json response = {
                     {"type", "error"},
                     {"requestId", requestId},
-                    {"error", "Unknown command type: " + type}
+                    {"errorMessage", "Unknown command type: " + type}
                 };
                 
                 m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -323,9 +335,9 @@ private:
     void send_measuring_status(connection_hdl hdl, const std::string& requestId) {
         std::string readableTime = parse_timestamp_request_id(requestId);
         json response = {
-            {"type", "measure_status"},
+            {"type", "measureStatus"},
             {"requestId", requestId},
-            {"status", "measuring"}
+            {"status", "pending"}
         };
         
         try {
@@ -364,7 +376,7 @@ private:
                 {"details", {
                     {"min", 42.1},
                     {"max", 43.0},
-                    {"std_dev", 0.23}
+                    {"stdDev", 0.23}
                 }},
                 {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()}
             };
@@ -373,16 +385,16 @@ private:
             result = {
                 {"value", 0.0},
                 {"unit", "mm"},
-                {"error", "Unknown measurement mode"},
+                {"errorMessage", "Unknown measurement mode"},
                 {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()}
             };
         }
         
         json response = {
-            {"type", "measure_status"},
+            {"type", "measureStatus"},
             {"requestId", requestId},
-            {"status", "done"},
-            {"result", result}
+            {"status", "success"},
+            {"data", result}
         };
         
         try {
@@ -416,11 +428,31 @@ private:
                       << " (" << readableTime << "), "
                       << "延迟: " << delay_seconds << "秒" << std::endl;
             
-            // 模拟测量过程需要一些时间
-            std::this_thread::sleep_for(std::chrono::seconds(delay_seconds));
+            // 模拟一个随机概率的超时情况（用于测试）
+            bool simulate_timeout = (rand() % 100) < 5; // 5%的概率模拟超时
             
-            // 测量完成，发送完成状态
-            send_measurement_complete(hdl, requestId, params);
+            if (simulate_timeout) {
+                // 模拟超时
+                std::this_thread::sleep_for(std::chrono::seconds(2)); // 短暂延迟
+                
+                // 发送超时状态
+                json timeout_response = {
+                    {"type", "measureStatus"},
+                    {"requestId", requestId},
+                    {"status", "timeout"},
+                    {"errorMessage", "Measurement operation timed out"}
+                };
+                
+                m_server.send(hdl, timeout_response.dump(), websocketpp::frame::opcode::text);
+                std::cout << "发送'测量超时'状态: " << requestId << " (" << readableTime << ")" << std::endl;
+            } else {
+                // 正常执行测量
+                // 模拟测量过程需要一些时间
+                std::this_thread::sleep_for(std::chrono::seconds(delay_seconds));
+                
+                // 测量完成，发送完成状态
+                send_measurement_complete(hdl, requestId, params);
+            }
         }).detach();
     }
 
@@ -435,10 +467,10 @@ int main() {
     
     std::cout << "===== 设备服务器 =====" << std::endl;
     std::cout << "支持的命令类型:" << std::endl;
-    std::cout << "1. 测量命令 (measure_request)" << std::endl;
-    std::cout << "2. 设置取流模式 (set_stream_mode)" << std::endl;
-    std::cout << "3. 获取取流模式 (get_stream_mode)" << std::endl;
-    std::cout << "4. 获取设备状态 (device_status)" << std::endl;
+    std::cout << "1. 测量命令 (measureRequest)" << std::endl;
+    std::cout << "2. 设置取流模式 (setStreamMode)" << std::endl;
+    std::cout << "3. 获取取流模式 (getStreamMode)" << std::endl;
+    std::cout << "4. 获取设备状态 (deviceStatus)" << std::endl;
     std::cout << "5. 校准命令 (calibrate)" << std::endl;
     std::cout << "============================" << std::endl;
     

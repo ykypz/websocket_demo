@@ -51,10 +51,10 @@ struct CommandResult {
 // 将CommandType转换为字符串
 std::string commandTypeToString(CommandType type) {
     switch (type) {
-        case CommandType::MEASURE: return "measure_request";
-        case CommandType::SET_STREAM_MODE: return "set_stream_mode";
-        case CommandType::GET_STREAM_MODE: return "get_stream_mode";
-        case CommandType::DEVICE_STATUS: return "device_status";
+        case CommandType::MEASURE: return "measureRequest";
+        case CommandType::SET_STREAM_MODE: return "setStreamMode";
+        case CommandType::GET_STREAM_MODE: return "getStreamMode";
+        case CommandType::DEVICE_STATUS: return "deviceStatus";
         case CommandType::CALIBRATE: return "calibrate";
         default: return "unknown";
     }
@@ -62,10 +62,10 @@ std::string commandTypeToString(CommandType type) {
 
 // 将字符串转换为CommandType
 CommandType stringToCommandType(const std::string& typeStr) {
-    if (typeStr == "measure_request") return CommandType::MEASURE;
-    if (typeStr == "set_stream_mode") return CommandType::SET_STREAM_MODE;
-    if (typeStr == "get_stream_mode") return CommandType::GET_STREAM_MODE;
-    if (typeStr == "device_status") return CommandType::DEVICE_STATUS;
+    if (typeStr == "measureRequest") return CommandType::MEASURE;
+    if (typeStr == "setStreamMode") return CommandType::SET_STREAM_MODE;
+    if (typeStr == "getStreamMode") return CommandType::GET_STREAM_MODE;
+    if (typeStr == "deviceStatus") return CommandType::DEVICE_STATUS;
     if (typeStr == "calibrate") return CommandType::CALIBRATE;
     return CommandType::MEASURE; // 默认为测量命令
 }
@@ -162,9 +162,9 @@ public:
         
         // 创建命令请求消息
         json request = {
-            {"type", commandTypeToString(cmdType)},
+            {"command", commandTypeToString(cmdType)},
             {"requestId", requestId},
-            {"payload", params}
+            {"params", params}
         };
         
         // 创建等待结果对象并保存到映射表中
@@ -300,12 +300,12 @@ private:
             json message = json::parse(payload);
             
             // 确保消息包含必要的字段
-            if (!message.contains("type") || !message.contains("requestId")) {
+            if (!message.contains("command") || !message.contains("requestId")) {
                 std::cerr << "Invalid message format: missing required fields" << std::endl;
                 return;
             }
             
-            std::string msgType = message["type"];
+            std::string msgType = message["command"];
             std::string requestId = message["requestId"];
             
             // 查找对应的请求
@@ -315,16 +315,16 @@ private:
                 // 根据命令类型处理响应
                 CommandType cmdType = it->second.cmdType;
                 
-                if (msgType == "measure_status") {
+                if (msgType == "measureStatus") {
                     // 处理测量命令的响应
                     handle_measure_response(it, message);
-                } else if (msgType == "stream_mode_status") {
+                } else if (msgType == "streamModeStatus") {
                     // 处理取流模式命令的响应
                     handle_stream_mode_response(it, message);
-                } else if (msgType == "device_status_response") {
+                } else if (msgType == "deviceStatusResponse") {
                     // 处理设备状态命令的响应
                     handle_device_status_response(it, message);
-                } else if (msgType == "calibration_status") {
+                } else if (msgType == "calibrationStatus") {
                     // 处理校准命令的响应
                     handle_calibration_response(it, message);
                 } else {
@@ -348,25 +348,25 @@ private:
         }
         
         std::string status = message["status"];
-        if (status == "measuring") {
-            // 收到"正在测量"的状态，继续等待
+        if (status == "pending") {
+            // 收到"正在处理"的状态，继续等待
             std::cout << "Measurement in progress for request: " << it->first << std::endl;
-        } else if (status == "done") {
-            // 收到"完成测量"的状态，记录结果并通知等待线程
+        } else if (status == "success") {
+            // 收到"成功"的状态，记录结果并通知等待线程
             it->second.first->completed = true;
-            if (message.contains("result")) {
-                it->second.first->data = message["result"];
+            if (message.contains("data")) {
+                it->second.first->data = message["data"];
             }
             
             // 通知等待线程
             it->second.second->set_value();
             
-            std::cout << "Measurement completed for request: " << it->first << std::endl;
+            std::cout << "Measurement completed successfully for request: " << it->first << std::endl;
         } else if (status == "error") {
             // 处理错误状态
             it->second.first->completed = false;
-            if (message.contains("error")) {
-                it->second.first->errorMessage = message["error"];
+            if (message.contains("errorMessage")) {
+                it->second.first->errorMessage = message["errorMessage"];
             } else {
                 it->second.first->errorMessage = "Unknown error";
             }
@@ -376,44 +376,116 @@ private:
             
             std::cout << "Measurement error for request: " << it->first 
                       << " - " << it->second.first->errorMessage << std::endl;
+        } else if (status == "timeout") {
+            // 处理超时状态
+            it->second.first->completed = false;
+            it->second.first->timeout = true;
+            it->second.first->errorMessage = "Measurement operation timed out";
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Measurement timeout for request: " << it->first << std::endl;
         }
     }
     
     // 处理取流模式命令的响应
     void handle_stream_mode_response(PendingRequestsIterator it, const json& message) {
-        if (it->second.cmdType == CommandType::SET_STREAM_MODE) {
-            // 设置取流模式的响应
+        if (!message.contains("status")) {
+            return;
+        }
+
+        std::string status = message["status"];
+        if (status == "success") {
+            // 设置或获取取流模式成功
             it->second.first->completed = true;
-            if (message.contains("success")) {
-                bool success = message["success"];
-                if (!success && message.contains("error")) {
-                    it->second.first->errorMessage = message["error"];
+            
+            if (it->second.cmdType == CommandType::SET_STREAM_MODE) {
+                // 设置取流模式的响应
+                if (message.contains("data") && message["data"].contains("currentMode")) {
+                    it->second.first->data["mode"] = message["data"]["currentMode"];
+                }
+            } else if (it->second.cmdType == CommandType::GET_STREAM_MODE) {
+                // 获取取流模式的响应
+                if (message.contains("data") && message["data"].contains("mode")) {
+                    it->second.first->data["mode"] = message["data"]["mode"];
                 }
             }
-            if (message.contains("current_mode")) {
-                it->second.first->data["mode"] = message["current_mode"];
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Stream mode operation successful for request: " << it->first << std::endl;
+        } else if (status == "error") {
+            // 处理错误状态
+            it->second.first->completed = false;
+            if (message.contains("errorMessage")) {
+                it->second.first->errorMessage = message["errorMessage"];
+            } else {
+                it->second.first->errorMessage = "Unknown error";
             }
-        } else if (it->second.cmdType == CommandType::GET_STREAM_MODE) {
-            // 获取取流模式的响应
-            it->second.first->completed = true;
-            if (message.contains("mode")) {
-                it->second.first->data["mode"] = message["mode"];
-            }
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Stream mode operation error for request: " << it->first 
+                    << " - " << it->second.first->errorMessage << std::endl;
+        } else if (status == "timeout") {
+            // 处理超时状态
+            it->second.first->completed = false;
+            it->second.first->timeout = true;
+            it->second.first->errorMessage = "Stream mode operation timed out";
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Stream mode operation timeout for request: " << it->first << std::endl;
         }
-        
-        // 通知等待线程
-        it->second.second->set_value();
     }
     
     // 处理设备状态命令的响应
     void handle_device_status_response(PendingRequestsIterator it, const json& message) {
-        it->second.first->completed = true;
-        if (message.contains("status")) {
-            it->second.first->data = message["status"];
+        if (!message.contains("status")) {
+            return;
         }
-        
-        // 通知等待线程
-        it->second.second->set_value();
+
+        std::string status = message["status"];
+        if (status == "success") {
+            // 获取设备状态成功
+            it->second.first->completed = true;
+            if (message.contains("data")) {
+                it->second.first->data = message["data"];
+            }
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Device status query successful for request: " << it->first << std::endl;
+        } else if (status == "error") {
+            // 处理错误状态
+            it->second.first->completed = false;
+            if (message.contains("errorMessage")) {
+                it->second.first->errorMessage = message["errorMessage"];
+            } else {
+                it->second.first->errorMessage = "Unknown error";
+            }
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Device status query error for request: " << it->first 
+                    << " - " << it->second.first->errorMessage << std::endl;
+        } else if (status == "timeout") {
+            // 处理超时状态
+            it->second.first->completed = false;
+            it->second.first->timeout = true;
+            it->second.first->errorMessage = "Device status query timed out";
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Device status query timeout for request: " << it->first << std::endl;
+        }
     }
     
     // 处理校准命令的响应
@@ -423,29 +495,31 @@ private:
         }
         
         std::string status = message["status"];
-        if (status == "calibrating") {
+        if (status == "pending") {
             // 校准进行中，继续等待
             std::cout << "Calibration in progress for request: " << it->first << std::endl;
             if (message.contains("progress")) {
                 int progress = message["progress"];
                 std::cout << "Calibration progress: " << progress << "%" << std::endl;
             }
-        } else if (status == "done") {
-            // 校准完成
+        } else if (status == "success") {
+            // 校准完成成功
             it->second.first->completed = true;
-            if (message.contains("result")) {
-                it->second.first->data = message["result"];
+            if (message.contains("data")) {
+                it->second.first->data = message["data"];
             }
             
             // 通知等待线程
             it->second.second->set_value();
             
-            std::cout << "Calibration completed for request: " << it->first << std::endl;
+            std::cout << "Calibration completed successfully for request: " << it->first << std::endl;
         } else if (status == "error") {
             // 校准错误
             it->second.first->completed = false;
-            if (message.contains("error")) {
-                it->second.first->errorMessage = message["error"];
+            if (message.contains("errorMessage")) {
+                it->second.first->errorMessage = message["errorMessage"];
+            } else {
+                it->second.first->errorMessage = "Unknown error";
             }
             
             // 通知等待线程
@@ -453,16 +527,80 @@ private:
             
             std::cout << "Calibration error for request: " << it->first 
                       << " - " << it->second.first->errorMessage << std::endl;
+        } else if (status == "timeout") {
+            // 处理超时状态
+            it->second.first->completed = false;
+            it->second.first->timeout = true;
+            it->second.first->errorMessage = "Calibration operation timed out";
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Calibration timeout for request: " << it->first << std::endl;
         }
     }
     
     // 处理通用响应
     void handle_generic_response(PendingRequestsIterator it, const json& message) {
-        it->second.first->completed = true;
-        it->second.first->data = message;
+        if (!message.contains("status")) {
+            // 如果没有状态字段，尝试解析旧格式的消息
+            it->second.first->completed = true;
+            it->second.first->data = message;
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            return;
+        }
         
-        // 通知等待线程
-        it->second.second->set_value();
+        std::string status = message["status"];
+        if (status == "success") {
+            // 操作成功
+            it->second.first->completed = true;
+            if (message.contains("data")) {
+                it->second.first->data = message["data"];
+            }
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Operation successful for request: " << it->first << std::endl;
+        } else if (status == "error") {
+            // 处理错误状态
+            it->second.first->completed = false;
+            if (message.contains("errorMessage")) {
+                it->second.first->errorMessage = message["errorMessage"];
+            } else {
+                it->second.first->errorMessage = "Unknown error";
+            }
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Operation error for request: " << it->first 
+                    << " - " << it->second.first->errorMessage << std::endl;
+        } else if (status == "pending") {
+            // 操作正在进行中，可以记录但不通知等待线程
+            std::cout << "Operation pending for request: " << it->first << std::endl;
+        } else if (status == "timeout") {
+            // 处理超时状态
+            it->second.first->completed = false;
+            it->second.first->timeout = true;
+            it->second.first->errorMessage = "Operation timed out";
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Operation timeout for request: " << it->first << std::endl;
+        } else {
+            // 未知状态
+            it->second.first->completed = false;
+            it->second.first->errorMessage = "Unknown status: " + status;
+            
+            // 通知等待线程
+            it->second.second->set_value();
+            
+            std::cout << "Unknown status for request: " << it->first << " - " << status << std::endl;
+        }
     }
 
     client m_client;

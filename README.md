@@ -8,9 +8,9 @@
 
 ```json
 {
-  "type": "measure_request",
-  "requestId": "xxxxxx", // 唯一标识本次请求
-  "payload": {
+  "type": "measureRequest",
+  "requestId": "YYYYMMDDHHMMSSmmmm", // 时间戳格式的唯一标识
+  "params": {
     // 具体测量参数
   }
 }
@@ -20,8 +20,8 @@
 
 ```json
 {
-  "type": "measure_status",
-  "requestId": "xxxxxx",
+  "type": "measureStatus",
+  "requestId": "YYYYMMDDHHMMSSmmmm",
   "status": "measuring"
 }
 ```
@@ -30,14 +30,22 @@
 
 ```json
 {
-  "type": "measure_status",
-  "requestId": "xxxxxx",
+  "type": "measureStatus",
+  "requestId": "YYYYMMDDHHMMSSmmmm",
   "status": "done",
-  "result": {
+  "data": {
     // 测量结果数据
   }
 }
 ```
+
+## 支持的命令类型
+
+- `measureRequest` - 测量请求
+- `setStreamMode` - 设置取流模式
+- `getStreamMode` - 获取当前取流模式
+- `deviceStatus` - 获取设备状态
+- `calibrate` - 设备校准
 
 ## 项目结构
 

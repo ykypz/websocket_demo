@@ -8,11 +8,11 @@ using json = nlohmann::json;
 
 // 定义模拟测试的辅助函数
 bool validate_json_schema(const json& j, const std::string& type) {
-    if (type == "measure_request") {
-        return j.contains("type") && j["type"] == "measure_request" &&
-               j.contains("requestId") && j.contains("payload");
-    } else if (type == "measure_status") {
-        return j.contains("type") && j["type"] == "measure_status" &&
+    if (type == "measureRequest") {
+        return j.contains("type") && j["type"] == "measureRequest" &&
+               j.contains("requestId") && j.contains("params");
+    } else if (type == "measureStatus") {
+        return j.contains("type") && j["type"] == "measureStatus" &&
                j.contains("requestId") && j.contains("status");
     }
     return false;
@@ -23,13 +23,13 @@ void run_protocol_test() {
     std::cout << "===== WebSocket 测量协议测试 =====" << std::endl;
     
     // 模拟生成请求ID
-    std::string requestId = "test-123456";
+    std::string requestId = "20240425123045123"; // 使用时间戳格式
     
     // 1. 模拟客户端发送测量请求
     json request = {
-        {"type", "measure_request"},
+        {"type", "measureRequest"},
         {"requestId", requestId},
-        {"payload", {
+        {"params", {
             {"mode", "standard"},
             {"precision", "high"}
         }}
@@ -39,14 +39,14 @@ void run_protocol_test() {
     std::cout << request.dump(2) << std::endl << std::endl;
     
     // 验证请求格式
-    if (!validate_json_schema(request, "measure_request")) {
+    if (!validate_json_schema(request, "measureRequest")) {
         std::cerr << "错误：客户端请求格式不符合协议要求" << std::endl;
         return;
     }
     
     // 2. 模拟服务端发送"正在测量"状态
     json measuring_response = {
-        {"type", "measure_status"},
+        {"type", "measureStatus"},
         {"requestId", requestId},
         {"status", "measuring"}
     };
@@ -55,17 +55,17 @@ void run_protocol_test() {
     std::cout << measuring_response.dump(2) << std::endl << std::endl;
     
     // 验证响应格式
-    if (!validate_json_schema(measuring_response, "measure_status")) {
+    if (!validate_json_schema(measuring_response, "measureStatus")) {
         std::cerr << "错误：服务端'正在测量'状态格式不符合协议要求" << std::endl;
         return;
     }
     
     // 3. 模拟服务端发送"测量完成"状态
     json done_response = {
-        {"type", "measure_status"},
+        {"type", "measureStatus"},
         {"requestId", requestId},
         {"status", "done"},
-        {"result", {
+        {"data", {
             {"value", 42.5},
             {"unit", "mm"},
             {"timestamp", 1692345678901}
@@ -76,16 +76,16 @@ void run_protocol_test() {
     std::cout << done_response.dump(2) << std::endl << std::endl;
     
     // 验证响应格式
-    if (!validate_json_schema(done_response, "measure_status")) {
+    if (!validate_json_schema(done_response, "measureStatus")) {
         std::cerr << "错误：服务端'测量完成'状态格式不符合协议要求" << std::endl;
         return;
     }
     
     // 4. 模拟客户端处理结果
     std::cout << "4. 客户端处理测量结果:" << std::endl;
-    if (done_response["status"] == "done" && done_response.contains("result")) {
-        std::cout << "测量成功，结果：" << done_response["result"]["value"] << " " 
-                  << done_response["result"]["unit"] << std::endl;
+    if (done_response["status"] == "done" && done_response.contains("data")) {
+        std::cout << "测量成功，结果：" << done_response["data"]["value"] << " " 
+                  << done_response["data"]["unit"] << std::endl;
     } else {
         std::cout << "测量未完成或出错" << std::endl;
     }
