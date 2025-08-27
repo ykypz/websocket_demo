@@ -1,3 +1,6 @@
+﻿#define ASIO_STANDALONE
+#define _WEBSOCKETPP_CPP11_STL_
+
 #include <websocketpp/config/asio_no_tls.hpp>
 #include <websocketpp/server.hpp>
 #include <nlohmann/json.hpp>
@@ -9,7 +12,12 @@
 #include <atomic>
 #include <ctime>
 #include <iomanip>
+#include <set>
 #include <cstdio>
+#include <locale>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 using json = nlohmann::json;
 using websocketpp::lib::placeholders::_1;
@@ -115,76 +123,67 @@ private:
     // 处理设置取流模式请求
     void handle_set_stream_mode(connection_hdl hdl, const std::string& requestId, const json& params) {
         std::string readableTime = parse_timestamp_request_id(requestId);
-        std::cout << "处理设置取流模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
+        std::cout << "处理设置观察模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
-        if (!params.contains("mode")) {
+        if (!params.contains("alignViewMode")) {
             // 发送错误响应
             json response = {
-                {"type", "streamModeStatus"},
+                {"command", "setAlignViewMode"},
                 {"requestId", requestId},
                 {"status", "error"},
-                {"errorMessage", "Missing mode parameter"},
-                {"data", {
-                    {"currentMode", m_current_stream_mode}
-                }}
+                {"errorMessage", "Missing alignViewMode parameter"}
             };
             
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
             return;
         }
         
-        std::string mode = params["mode"];
+        std::string mode = params["alignViewMode"];
         bool valid_mode = false;
         
         // 检查模式是否有效
-        if (mode == "continuous" || mode == "trigger" || mode == "snapshot") {
+        if (mode == "align" || mode == "view") {
             valid_mode = true;
         }
         
         if (valid_mode) {
-            // 设置新的取流模式
+            // 设置新的观察模式
             m_current_stream_mode = mode;
             
             // 发送成功响应
             json response = {
-                {"type", "streamModeStatus"},
+                {"command", "setAlignViewMode"},
                 {"requestId", requestId},
-                {"status", "success"},
-                {"data", {
-                    {"currentMode", m_current_stream_mode}
-                }}
+                {"status", "success"}
             };
             
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
-            std::cout << "取流模式已设置为: " << mode << std::endl;
+            std::cout << "观察模式已设置为: " << mode << std::endl;
         } else {
             // 发送错误响应
             json response = {
-                {"type", "streamModeStatus"},
+                {"command", "setAlignViewMode"},
                 {"requestId", requestId},
                 {"status", "error"},
-                {"errorMessage", "Invalid mode: " + mode + ". Valid modes are: continuous, trigger, snapshot"},
-                {"data", {
-                    {"currentMode", m_current_stream_mode}
-                }}
+                {"errorMessage", "Invalid mode: " + mode + ". Valid modes are: align, view"}
             };
             
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
         }
     }
     
-    // 处理获取取流模式请求
+    // 处理获取观察模式请求
     void handle_get_stream_mode(connection_hdl hdl, const std::string& requestId) {
         std::string readableTime = parse_timestamp_request_id(requestId);
-        std::cout << "处理获取取流模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
+        std::cout << "处理获取观察模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
-        // 发送当前取流模式
+        // 发送当前观察模式
         json response = {
-            {"type", "streamModeStatus"},
+            {"command", "getAlignViewMode"},
             {"requestId", requestId},
             {"status", "success"},
             {"data", {
-                {"mode", m_current_stream_mode}
+                {"alignViewMode", m_current_stream_mode}
             }}
         };
         
@@ -202,14 +201,14 @@ private:
             {"firmwareVersion", "2.5.1"},
             {"temperature", 36.7},
             {"uptime", 12345},
-            {"streamMode", m_current_stream_mode},
+            {"alignViewMode", m_current_stream_mode},
             {"isCalibrated", true},
             {"battery", 85}
         };
         
         // 发送设备状态响应
         json response = {
-            {"type", "deviceStatusResponse"},
+            {"command", "getDeviceStatus"},
             {"requestId", requestId},
             {"status", "success"},
             {"data", {
@@ -227,10 +226,12 @@ private:
         
         // 立即发送校准开始状态
         json start_response = {
-            {"type", "calibrationStatus"},
+            {"command", "calibrate"},
             {"requestId", requestId},
-            {"status", "calibrating"},
-            {"progress", 0}
+            {"status", "pending"},
+            {"data", {
+                {"progress", 0}
+            }}
         };
         
         m_server.send(hdl, start_response.dump(), websocketpp::frame::opcode::text);
@@ -248,10 +249,12 @@ private:
                 // 发送进度更新
                 int progress = (i * 100) / steps;
                 json progress_response = {
-                    {"type", "calibrationStatus"},
+                    {"command", "calibrate"},
                     {"requestId", requestId},
-                    {"status", "calibrating"},
-                    {"progress", progress}
+                    {"status", "pending"},
+                    {"data", {
+                        {"progress", progress}
+                    }}
                 };
                 
                 m_server.send(hdl, progress_response.dump(), websocketpp::frame::opcode::text);
@@ -259,16 +262,15 @@ private:
             
             // 校准完成
             json result = {
-                {"success", true},
                 {"calibrationType", calibrationType},
                 {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()},
                 {"offset", 0.05}
             };
             
             json complete_response = {
-                {"type", "calibrationStatus"},
+                {"command", "calibrate"},
                 {"requestId", requestId},
-                {"status", "done"},
+                {"status", "success"},
                 {"data", result}
             };
             
@@ -283,44 +285,45 @@ private:
             std::string payload = msg->get_payload();
             json message = json::parse(payload);
 
-            // 检查消息类型
-            if (!message.contains("type") || !message.contains("requestId")) {
+            // 检查消息格式
+            if (!message.contains("command") || !message.contains("requestId")) {
                 std::cerr << "Invalid message format" << std::endl;
                 return;
             }
             
-            std::string type = message["type"];
+            std::string command = message["command"];
             std::string requestId = message["requestId"];
             std::string readableTime = parse_timestamp_request_id(requestId);
             
-            std::cout << "收到请求: [" << type << "], ID: " << requestId 
+            std::cout << "收到请求: [" << command << "], ID: " << requestId 
                       << " (" << readableTime << ")" << std::endl;
             
-            // 根据消息类型分发处理
-            if (type == "measureRequest") {
+            // 根据命令类型分发处理
+            if (command == "executeMeasure") {
                 // 处理测量请求
                 json params = message.value("params", json());
                 handle_measure_request(hdl, requestId, params);
-            } else if (type == "setStreamMode") {
-                // 处理设置取流模式请求
+            } else if (command == "setAlignViewMode") {
+                // 处理设置观察模式请求
                 json params = message.value("params", json());
                 handle_set_stream_mode(hdl, requestId, params);
-            } else if (type == "getStreamMode") {
-                // 处理获取取流模式请求
+            } else if (command == "getAlignViewMode") {
+                // 处理获取观察模式请求
                 handle_get_stream_mode(hdl, requestId);
-            } else if (type == "deviceStatus") {
+            } else if (command == "getDeviceStatus") {
                 // 处理获取设备状态请求
                 handle_device_status(hdl, requestId);
-            } else if (type == "calibrate") {
+            } else if (command == "calibrate") {
                 // 处理校准请求
                 json params = message.value("params", json());
                 handle_calibrate(hdl, requestId, params);
             } else {
                 // 未知命令类型
                 json response = {
-                    {"type", "error"},
+                    {"command", command},
                     {"requestId", requestId},
-                    {"errorMessage", "Unknown command type: " + type}
+                    {"status", "error"},
+                    {"errorMessage", "Unknown command: " + command}
                 };
                 
                 m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -335,7 +338,7 @@ private:
     void send_measuring_status(connection_hdl hdl, const std::string& requestId) {
         std::string readableTime = parse_timestamp_request_id(requestId);
         json response = {
-            {"type", "measureStatus"},
+            {"command", "executeMeasure"},
             {"requestId", requestId},
             {"status", "pending"}
         };
@@ -391,7 +394,7 @@ private:
         }
         
         json response = {
-            {"type", "measureStatus"},
+            {"command", "executeMeasure"},
             {"requestId", requestId},
             {"status", "success"},
             {"data", result}
@@ -437,7 +440,7 @@ private:
                 
                 // 发送超时状态
                 json timeout_response = {
-                    {"type", "measureStatus"},
+                    {"command", "executeMeasure"},
                     {"requestId", requestId},
                     {"status", "timeout"},
                     {"errorMessage", "Measurement operation timed out"}
@@ -463,14 +466,21 @@ private:
 };
 
 int main() {
+    // 设置控制台编码，以支持中文显示
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#else
+    std::locale::global(std::locale(""));
+#endif
+    
     DeviceServer server;
     
     std::cout << "===== 设备服务器 =====" << std::endl;
     std::cout << "支持的命令类型:" << std::endl;
-    std::cout << "1. 测量命令 (measureRequest)" << std::endl;
-    std::cout << "2. 设置取流模式 (setStreamMode)" << std::endl;
-    std::cout << "3. 获取取流模式 (getStreamMode)" << std::endl;
-    std::cout << "4. 获取设备状态 (deviceStatus)" << std::endl;
+    std::cout << "1. 测量命令 (executeMeasure)" << std::endl;
+    std::cout << "2. 设置观察模式 (setAlignViewMode)" << std::endl;
+    std::cout << "3. 获取观察模式 (getAlignViewMode)" << std::endl;
+    std::cout << "4. 获取设备状态 (getDeviceStatus)" << std::endl;
     std::cout << "5. 校准命令 (calibrate)" << std::endl;
     std::cout << "============================" << std::endl;
     

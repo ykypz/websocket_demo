@@ -1,3 +1,6 @@
+#define ASIO_STANDALONE
+#define _WEBSOCKETPP_CPP11_STL_
+
 #include <websocketpp/config/asio_no_tls_client.hpp>
 #include <websocketpp/client.hpp>
 #include <nlohmann/json.hpp>
@@ -15,6 +18,10 @@
 #include <any>
 #include <limits>
 #include <cstdio>
+#include <locale>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 using json = nlohmann::json;
 using websocketpp::lib::placeholders::_1;
@@ -51,10 +58,10 @@ struct CommandResult {
 // 将CommandType转换为字符串
 std::string commandTypeToString(CommandType type) {
     switch (type) {
-        case CommandType::MEASURE: return "measureRequest";
-        case CommandType::SET_STREAM_MODE: return "setStreamMode";
-        case CommandType::GET_STREAM_MODE: return "getStreamMode";
-        case CommandType::DEVICE_STATUS: return "deviceStatus";
+        case CommandType::MEASURE: return "executeMeasure";
+        case CommandType::SET_STREAM_MODE: return "setAlignViewMode";
+        case CommandType::GET_STREAM_MODE: return "getAlignViewMode";
+        case CommandType::DEVICE_STATUS: return "getDeviceStatus";
         case CommandType::CALIBRATE: return "calibrate";
         default: return "unknown";
     }
@@ -62,15 +69,27 @@ std::string commandTypeToString(CommandType type) {
 
 // 将字符串转换为CommandType
 CommandType stringToCommandType(const std::string& typeStr) {
-    if (typeStr == "measureRequest") return CommandType::MEASURE;
-    if (typeStr == "setStreamMode") return CommandType::SET_STREAM_MODE;
-    if (typeStr == "getStreamMode") return CommandType::GET_STREAM_MODE;
+    if (typeStr == "executeMeasure") return CommandType::MEASURE;
+    if (typeStr == "setAlignViewMode") return CommandType::SET_STREAM_MODE;
+    if (typeStr == "getAlignViewMode") return CommandType::GET_STREAM_MODE;
     if (typeStr == "deviceStatus") return CommandType::DEVICE_STATUS;
     if (typeStr == "calibrate") return CommandType::CALIBRATE;
     return CommandType::MEASURE; // 默认为测量命令
 }
 
 class DeviceClient {
+private:
+    // 请求结构体，用于存储请求信息
+    struct PendingRequest {
+        std::shared_ptr<CommandResult> first;
+        std::shared_ptr<std::promise<void>> second;
+        CommandType cmdType;
+    };
+    
+    // 迭代器类型定义
+    using PendingRequestsIterator = 
+        std::map<std::string, PendingRequest>::iterator;
+
 public:
     DeviceClient() : m_done(false) {
         // 初始化WebSocket客户端
@@ -176,7 +195,11 @@ public:
         // 保存到请求映射表中
         {
             std::lock_guard<std::mutex> lock(m_pending_mutex);
-            m_pending_requests[requestId] = {result, promise, cmdType};
+            PendingRequest req;
+            req.first = result;
+            req.second = promise;
+            req.cmdType = cmdType;
+            m_pending_requests[requestId] = req;
         }
         
         // 发送请求
@@ -223,10 +246,10 @@ public:
         return send_command(CommandType::MEASURE, params, timeout_sec);
     }
     
-    // 发送设置取流模式命令的便捷方法
+    // 发送设置观察模式命令的便捷方法
     CommandResult set_stream_mode(const std::string& mode, int timeout_sec = 5) {
         json params = {
-            {"mode", mode}
+            {"alignViewMode", mode}
         };
         return send_command(CommandType::SET_STREAM_MODE, params, timeout_sec);
     }
@@ -256,18 +279,16 @@ public:
             }
         }
         
-        // 通知所有等待中的请求
-        {
-            std::lock_guard<std::mutex> lock(m_pending_mutex);
-            for (auto& request : m_pending_requests) {
-                request.second.first->timeout = true;
-                request.second.first->errorMessage = "Connection closed";
-                request.second.second->set_value();
-            }
-            m_pending_requests.clear();
-        }
-        
-        m_done = true;
+            // 通知所有等待中的请求
+            {
+                std::lock_guard<std::mutex> lock(m_pending_mutex);
+                for (auto& request : m_pending_requests) {
+                    request.second.first->timeout = true;
+                    request.second.first->errorMessage = "Connection closed";
+                    request.second.second->set_value();
+                }
+                m_pending_requests.clear();
+            }        m_done = true;
         if (m_thread.joinable()) {
             m_thread.join();
         }
@@ -315,16 +336,16 @@ private:
                 // 根据命令类型处理响应
                 CommandType cmdType = it->second.cmdType;
                 
-                if (msgType == "measureStatus") {
+                if (msgType == "executeMeasure") {
                     // 处理测量命令的响应
                     handle_measure_response(it, message);
-                } else if (msgType == "streamModeStatus") {
-                    // 处理取流模式命令的响应
+                } else if (msgType == "setAlignViewMode" || msgType == "getAlignViewMode") {
+                    // 处理观察模式命令的响应
                     handle_stream_mode_response(it, message);
-                } else if (msgType == "deviceStatusResponse") {
+                } else if (msgType == "getDeviceStatus") {
                     // 处理设备状态命令的响应
                     handle_device_status_response(it, message);
-                } else if (msgType == "calibrationStatus") {
+                } else if (msgType == "calibrate") {
                     // 处理校准命令的响应
                     handle_calibration_response(it, message);
                 } else {
@@ -609,22 +630,19 @@ private:
     bool m_connected = false;
     bool m_done;
     
-    // 迭代器类型定义
-    using PendingRequestsIterator = 
-        std::map<std::string, 
-                 std::tuple<std::shared_ptr<CommandResult>, 
-                           std::shared_ptr<std::promise<void>>, 
-                           CommandType>>::iterator;
-    
     // 请求映射表，存储每个请求ID对应的结果、promise和命令类型
     std::mutex m_pending_mutex;
-    std::map<std::string, 
-             std::tuple<std::shared_ptr<CommandResult>, 
-                       std::shared_ptr<std::promise<void>>, 
-                       CommandType>> m_pending_requests;
+    std::map<std::string, PendingRequest> m_pending_requests;
 };
 
 int main() {
+    // 设置控制台编码，以支持中文显示
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#else
+    std::locale::global(std::locale(""));
+#endif
+
     // 测试一下requestId的生成格式
     DeviceClient client;
     std::string testId = client.generate_request_id();
