@@ -7,6 +7,9 @@
 #include <chrono>
 #include <functional>
 #include <atomic>
+#include <ctime>
+#include <iomanip>
+#include <cstdio>
 
 using json = nlohmann::json;
 using websocketpp::lib::placeholders::_1;
@@ -40,6 +43,33 @@ public:
         // 初始化默认流模式
         m_current_stream_mode = "continuous";
     }
+    
+    // 解析时间戳格式的requestId为可读格式
+    std::string parse_timestamp_request_id(const std::string& requestId) {
+        if (requestId.length() != 17) {
+            return requestId; // 不是标准的时间戳格式，直接返回
+        }
+        
+        try {
+            // 提取年月日时分秒毫秒
+            int year = std::stoi(requestId.substr(0, 4));
+            int month = std::stoi(requestId.substr(4, 2));
+            int day = std::stoi(requestId.substr(6, 2));
+            int hour = std::stoi(requestId.substr(8, 2));
+            int minute = std::stoi(requestId.substr(10, 2));
+            int second = std::stoi(requestId.substr(12, 2));
+            int millisecond = std::stoi(requestId.substr(14, 3));
+            
+            // 格式化为可读格式
+            char buf[30];
+            std::sprintf(buf, "%04d-%02d-%02d %02d:%02d:%02d.%03d",
+                        year, month, day, hour, minute, second, millisecond);
+            
+            return std::string(buf);
+        } catch (const std::exception& e) {
+            return requestId; // 解析失败，返回原始ID
+        }
+    }
 
     void run(uint16_t port) {
         // 设置服务器监听端口
@@ -72,7 +102,8 @@ private:
     
     // 处理测量请求
     void handle_measure_request(connection_hdl hdl, const std::string& requestId, const json& params) {
-        std::cout << "处理测量请求: " << requestId << std::endl;
+        std::string readableTime = parse_timestamp_request_id(requestId);
+        std::cout << "处理测量请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
         // 立即回复"正在测量"状态
         send_measuring_status(hdl, requestId);
@@ -83,7 +114,8 @@ private:
     
     // 处理设置取流模式请求
     void handle_set_stream_mode(connection_hdl hdl, const std::string& requestId, const json& params) {
-        std::cout << "处理设置取流模式请求: " << requestId << std::endl;
+        std::string readableTime = parse_timestamp_request_id(requestId);
+        std::cout << "处理设置取流模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
         if (!params.contains("mode")) {
             // 发送错误响应
@@ -137,7 +169,8 @@ private:
     
     // 处理获取取流模式请求
     void handle_get_stream_mode(connection_hdl hdl, const std::string& requestId) {
-        std::cout << "处理获取取流模式请求: " << requestId << std::endl;
+        std::string readableTime = parse_timestamp_request_id(requestId);
+        std::cout << "处理获取取流模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
         // 发送当前取流模式
         json response = {
@@ -151,7 +184,8 @@ private:
     
     // 处理获取设备状态请求
     void handle_device_status(connection_hdl hdl, const std::string& requestId) {
-        std::cout << "处理获取设备状态请求: " << requestId << std::endl;
+        std::string readableTime = parse_timestamp_request_id(requestId);
+        std::cout << "处理获取设备状态请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
         // 模拟设备状态信息
         json status = {
@@ -176,7 +210,8 @@ private:
     
     // 处理校准请求
     void handle_calibrate(connection_hdl hdl, const std::string& requestId, const json& params) {
-        std::cout << "处理校准请求: " << requestId << std::endl;
+        std::string readableTime = parse_timestamp_request_id(requestId);
+        std::cout << "处理校准请求: " << requestId << " (" << readableTime << ")" << std::endl;
         
         // 立即发送校准开始状态
         json start_response = {
@@ -244,6 +279,10 @@ private:
             
             std::string type = message["type"];
             std::string requestId = message["requestId"];
+            std::string readableTime = parse_timestamp_request_id(requestId);
+            
+            std::cout << "收到请求: [" << type << "], ID: " << requestId 
+                      << " (" << readableTime << ")" << std::endl;
             
             // 根据消息类型分发处理
             if (type == "measure_request") {
@@ -282,6 +321,7 @@ private:
     }
 
     void send_measuring_status(connection_hdl hdl, const std::string& requestId) {
+        std::string readableTime = parse_timestamp_request_id(requestId);
         json response = {
             {"type", "measure_status"},
             {"requestId", requestId},
@@ -290,13 +330,14 @@ private:
         
         try {
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
-            std::cout << "发送'正在测量'状态: " << requestId << std::endl;
+            std::cout << "发送'正在测量'状态: " << requestId << " (" << readableTime << ")" << std::endl;
         } catch (std::exception& e) {
             std::cerr << "Error sending measuring status: " << e.what() << std::endl;
         }
     }
 
     void send_measurement_complete(connection_hdl hdl, const std::string& requestId, const json& params) {
+        std::string readableTime = parse_timestamp_request_id(requestId);
         // 创建一个包含测量结果的响应
         json result;
         
@@ -346,15 +387,16 @@ private:
         
         try {
             m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
-            std::cout << "发送'测量完成'状态: " << requestId << std::endl;
+            std::cout << "发送'测量完成'状态: " << requestId << " (" << readableTime << ")" << std::endl;
         } catch (std::exception& e) {
             std::cerr << "Error sending measurement complete: " << e.what() << std::endl;
         }
     }
 
     void start_measurement(connection_hdl hdl, const std::string& requestId, const json& params) {
+        std::string readableTime = parse_timestamp_request_id(requestId);
         // 启动一个新线程来模拟测量过程
-        std::thread([this, hdl, requestId, params]() {
+        std::thread([this, hdl, requestId, params, readableTime]() {
             // 根据不同的测量模式和精度，模拟不同的测量时间
             int delay_seconds = 2; // 默认延迟
             
@@ -371,7 +413,8 @@ private:
             }
             
             std::cout << "处理测量请求: " << requestId 
-                      << " (延迟: " << delay_seconds << "秒)" << std::endl;
+                      << " (" << readableTime << "), "
+                      << "延迟: " << delay_seconds << "秒" << std::endl;
             
             // 模拟测量过程需要一些时间
             std::this_thread::sleep_for(std::chrono::seconds(delay_seconds));
