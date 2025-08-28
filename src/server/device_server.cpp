@@ -22,9 +22,6 @@ DeviceServer::DeviceServer() {
     m_server.set_message_handler(bind(&DeviceServer::onMessage, this, ::_1, ::_2));
     m_server.set_open_handler(bind(&DeviceServer::onOpen, this, ::_1));
     m_server.set_close_handler(bind(&DeviceServer::onClose, this, ::_1));
-
-    // 初始化默认流模式
-    m_current_stream_mode = "continuous";
 }
 
 void DeviceServer::run(uint16_t port) {
@@ -77,9 +74,9 @@ void DeviceServer::onMessage(connection_hdl hdl, message_ptr msg) {
         // 根据命令类型分发处理
         if (command == "setAlignViewMode") {
             json params = message.value("params", json());
-            handleSetStreamMode(hdl, requestId, params);
+            handleSetAlignViewMode(hdl, requestId, params);
         } else if (command == "getAlignViewMode") {
-            handleGetStreamMode(hdl, requestId);
+            handleGetAlignViewMode(hdl, requestId);
         } else if (command == "startStream") {
             json params = message.value("params", json());
             handleStartStream(hdl, requestId, params);
@@ -87,14 +84,14 @@ void DeviceServer::onMessage(connection_hdl hdl, message_ptr msg) {
             handleStopStream(hdl, requestId);
         } else if (command == "executeMeasure") {
             json params = message.value("params", json());
-            handleMeasureRequest(hdl, requestId, params);
+            handleExcuteMeasureRequest(hdl, requestId, params);
         } else if (command == "stopMeasure") {
             handleStopMeasure(hdl, requestId);
         } else if (command == "getMeasureStatus") {
-            handleMeasureStatus(hdl, requestId);
+            handleGetMeasureStatus(hdl, requestId);
         } else if (command == "getSufaceData") {
             // 处理获取设备状态请求
-            handleMeasureStatus(hdl, requestId);
+            handleGetMeasureStatus(hdl, requestId);
         } else {
             // 未知命令类型
             json response = {{"command", command},
@@ -111,24 +108,10 @@ void DeviceServer::onMessage(connection_hdl hdl, message_ptr msg) {
     }
 }
 
-// 处理测量请求
-void DeviceServer::handleMeasureRequest(connection_hdl hdl,
-                                        const std::string& requestId,
-                                        const json& params) {
-    std::string readableTime = parseTimestampId(requestId);
-    std::cout << "处理测量请求: " << requestId << " (" << readableTime << ")" << std::endl;
-
-    // 立即回复"正在测量"状态
-    sendMeasuringStatus(hdl, requestId);
-
-    // 启动模拟测量任务
-    startMeasurement(hdl, requestId, params);
-}
-
 // 处理设置取流模式请求
-void DeviceServer::handleSetStreamMode(connection_hdl hdl,
-                                       const std::string& requestId,
-                                       const json& params) {
+void DeviceServer::handleSetAlignViewMode(connection_hdl hdl,
+                                          const std::string& requestId,
+                                          const json& params) {
     std::string readableTime = parseTimestampId(requestId);
     std::cout << "处理设置观察模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
 
@@ -147,8 +130,7 @@ void DeviceServer::handleSetStreamMode(connection_hdl hdl,
     bool valid_mode = false;
 
     // 检查模式是否有效
-    if (mode == "align" || mode == "view" || mode == "continuous" || mode == "trigger" ||
-        mode == "snapshot") {
+    if (mode == "align" || mode == "view") {
         valid_mode = true;
     }
 
@@ -178,7 +160,7 @@ void DeviceServer::handleSetStreamMode(connection_hdl hdl,
 }
 
 // 处理获取观察模式请求
-void DeviceServer::handleGetStreamMode(connection_hdl hdl, const std::string& requestId) {
+void DeviceServer::handleGetAlignViewMode(connection_hdl hdl, const std::string& requestId) {
     std::string readableTime = parseTimestampId(requestId);
     std::cout << "处理获取观察模式请求: " << requestId << " (" << readableTime << ")" << std::endl;
 
@@ -186,89 +168,9 @@ void DeviceServer::handleGetStreamMode(connection_hdl hdl, const std::string& re
     json response = {{"command", "getAlignViewMode"},
                      {"requestId", requestId},
                      {"status", "success"},
-                     {"data", {{"mode", m_current_stream_mode}}}};
+                     {"data", {{"alignViewMode", m_current_stream_mode}}}};
 
     m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
-}
-
-// 处理获取设备状态请求
-void DeviceServer::handleMeasureStatus(connection_hdl hdl, const std::string& requestId) {
-    std::string readableTime = parseTimestampId(requestId);
-    std::cout << "处理获取设备状态请求: " << requestId << " (" << readableTime << ")" << std::endl;
-
-    // 模拟设备状态信息
-    json deviceStatus = {{"deviceId", "DEV12345"},
-                         {"firmwareVersion", "2.5.1"},
-                         {"temperature", 36.7},
-                         {"uptime", 12345},
-                         {"alignViewMode", m_current_stream_mode},
-                         {"isCalibrated", static_cast<bool>(m_is_calibrated)},
-                         {"isStreaming", static_cast<bool>(m_is_streaming)},
-                         {"isMeasuring", static_cast<bool>(m_is_measuring)},
-                         {"battery", 85}};
-
-    // 发送设备状态响应
-    json response = {{"command", "getMeasureStatus"},
-                     {"requestId", requestId},
-                     {"status", "success"},
-                     {"data", {{"deviceStatus", deviceStatus}}}};
-
-    m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
-}
-
-// 处理校准请求 (这里我们将其作为一种特殊的测量请求处理)
-void DeviceServer::handleCalibrate(connection_hdl hdl,
-                                   const std::string& requestId,
-                                   const json& params) {
-    std::string readableTime = parseTimestampId(requestId);
-    std::cout << "处理校准请求: " << requestId << " (" << readableTime << ")" << std::endl;
-
-    // 立即发送校准开始状态
-    json start_response = {{"command", "executeMeasure"},
-                           {"requestId", requestId},
-                           {"status", "pending"},
-                           {"data", {{"progress", 0}, {"calibration", true}}}};
-
-    m_server.send(hdl, start_response.dump(), websocketpp::frame::opcode::text);
-
-    // 启动校准任务
-    std::thread([this, hdl, requestId, params]() {
-        // 模拟校准过程
-        std::string calibrationType = params.value("type", "standard");
-        int steps = (calibrationType == "full") ? 5 : 3;
-
-        m_is_calibrated = false;
-
-        for (int i = 1; i <= steps; i++) {
-            // 每步暂停一段时间
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-
-            // 发送进度更新
-            int progress = (i * 100) / steps;
-            json progress_response = {{"command", "executeMeasure"},
-                                      {"requestId", requestId},
-                                      {"status", "pending"},
-                                      {"data", {{"progress", progress}, {"calibration", true}}}};
-
-            m_server.send(hdl, progress_response.dump(), websocketpp::frame::opcode::text);
-        }
-
-        // 校准完成
-        m_is_calibrated = true;
-
-        json result = {{"calibrationType", calibrationType},
-                       {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()},
-                       {"offset", 0.05},
-                       {"calibration", true}};
-
-        json complete_response = {{"command", "executeMeasure"},
-                                  {"requestId", requestId},
-                                  {"status", "success"},
-                                  {"data", result}};
-
-        m_server.send(hdl, complete_response.dump(), websocketpp::frame::opcode::text);
-        std::cout << "校准完成: " << requestId << std::endl;
-    }).detach();
 }
 
 // 处理开始取流请求
@@ -337,6 +239,20 @@ void DeviceServer::handleStopStream(connection_hdl hdl, const std::string& reque
     std::cout << "取流已停止" << std::endl;
 }
 
+// 处理测量请求
+void DeviceServer::handleExcuteMeasureRequest(connection_hdl hdl,
+                                              const std::string& requestId,
+                                              const json& params) {
+    std::string readableTime = parseTimestampId(requestId);
+    std::cout << "处理测量请求: " << requestId << " (" << readableTime << ")" << std::endl;
+
+    // 立即回复"正在测量"状态
+    sendMeasuringStatus(hdl, requestId);
+
+    // 启动模拟测量任务
+    startMeasurement(hdl, requestId, params);
+}
+
 // 处理停止测量请求
 void DeviceServer::handleStopMeasure(connection_hdl hdl, const std::string& requestId) {
     std::string readableTime = parseTimestampId(requestId);
@@ -353,15 +269,36 @@ void DeviceServer::handleStopMeasure(connection_hdl hdl, const std::string& requ
         return;
     }
 
-    // 停止测量
+    // 设置停止测量标志 - 这将导致测量线程检测到停止请求并退出
     m_is_measuring = false;
 
     // 返回成功响应
-    json response = {{"command", "stopMeasure"}, {"requestId", requestId}, {"status", "success"}};
+    json response = {{"command", "stopMeasure"}, 
+                     {"requestId", requestId}, 
+                     {"status", "success"},
+                     {"data", {{"stopped", true}}}};
 
     m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
-    std::cout << "测量已停止" << std::endl;
+    std::cout << "停止测量命令已发送" << std::endl;
 }
+
+// 处理获取设备状态请求
+void DeviceServer::handleGetMeasureStatus(connection_hdl hdl, const std::string& requestId) {
+    std::string readableTime = parseTimestampId(requestId);
+    std::cout << "处理获取设备状态请求: " << requestId << " (" << readableTime << ")" << std::endl;
+
+    bool isMeasuring = m_is_measuring;
+
+    // 发送设备状态响应
+    json response = {{"command", "getMeasureStatus"},
+                     {"requestId", requestId},
+                     {"status", "success"},
+                     {"data", {{"isMeasuring", isMeasuring}}}};
+
+    m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
+}
+
+void DeviceServer::handleGetSurfaceData(connection_hdl hdl, const std::string& requestId) {}
 
 void DeviceServer::sendMeasuringStatus(connection_hdl hdl, const std::string& requestId) {
     std::string readableTime = parseTimestampId(requestId);
@@ -382,10 +319,11 @@ void DeviceServer::sendMeasurementComplete(connection_hdl hdl,
                                            const json& params) {
     std::string readableTime = parseTimestampId(requestId);
 
-    json response = {{"command", "executeMeasure"},
-                     {"requestId", requestId},
-                     {"status", "success"},
-                     };
+    json response = {
+        {"command", "executeMeasure"},
+        {"requestId", requestId},
+        {"status", "success"},
+    };
 
     try {
         m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -408,7 +346,9 @@ void DeviceServer::startMeasurement(connection_hdl hdl,
         // 设置测量状态
         m_is_measuring = true;
 
-        int delay_seconds = 2;  // 默认延迟
+        int delay_seconds = 5;  // 增加延迟时间，便于测试停止功能
+        int check_interval_ms = 200; // 每200毫秒检查一次是否应该停止测量
+        int elapsed_ms = 0; // 已经过去的毫秒数
 
         std::cout << "处理测量请求: " << requestId << " (" << readableTime << "), "
                   << "延迟: " << delay_seconds << "秒" << std::endl;
@@ -417,28 +357,71 @@ void DeviceServer::startMeasurement(connection_hdl hdl,
         bool simulate_timeout = (rand() % 100) < 5;  // 5%的概率模拟超时
 
         if (simulate_timeout) {
-            // 模拟超时
-            std::this_thread::sleep_for(std::chrono::seconds(2));  // 短暂延迟
+            // 模拟超时，但仍然支持提前停止
+            while (elapsed_ms < 2000 && m_is_measuring) { // 2秒超时时间
+                std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
+                elapsed_ms += check_interval_ms;
+                
+                // 如果测量被停止，提前退出
+                if (!m_is_measuring) {
+                    std::cout << "测量已被中断 (超时模拟中): " << requestId << std::endl;
+                    return;
+                }
+            }
 
-            // 发送超时状态
-            json timeout_response = {{"command", "executeMeasure"},
-                                     {"requestId", requestId},
-                                     {"status", "timeout"},
-                                     {"errorMessage", "Measurement operation timed out"}};
+            // 如果测量仍在进行中，则发送超时状态
+            if (m_is_measuring) {
+                // 发送超时状态
+                json timeout_response = {{"command", "executeMeasure"},
+                                        {"requestId", requestId},
+                                        {"status", "timeout"},
+                                        {"errorMessage", "Measurement operation timed out"}};
 
-            m_server.send(hdl, timeout_response.dump(), websocketpp::frame::opcode::text);
-            std::cout << "发送'测量超时'状态: " << requestId << " (" << readableTime << ")"
-                      << std::endl;
+                m_server.send(hdl, timeout_response.dump(), websocketpp::frame::opcode::text);
+                std::cout << "发送'测量超时'状态: " << requestId << " (" << readableTime << ")"
+                        << std::endl;
 
-            // 重置测量状态
-            m_is_measuring = false;
+                // 重置测量状态
+                m_is_measuring = false;
+            }
         } else {
-            // 正常执行测量
-            // 模拟测量过程需要一些时间
-            std::this_thread::sleep_for(std::chrono::seconds(delay_seconds));
+            // 正常执行测量，支持提前停止
+            int total_delay_ms = delay_seconds * 1000;
+            
+            while (elapsed_ms < total_delay_ms && m_is_measuring) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(check_interval_ms));
+                elapsed_ms += check_interval_ms;
+                
+                // 如果测量被停止，提前退出
+                if (!m_is_measuring) {
+                    std::cout << "测量已被中断: " << requestId << std::endl;
+                    
+                    // 发送测量中断消息
+                    json interrupted_response = {
+                        {"command", "executeMeasure"},
+                        {"requestId", requestId},
+                        {"status", "error"},
+                        {"errorMessage", "Measurement was interrupted"}
+                    };
+                    
+                    m_server.send(hdl, interrupted_response.dump(), websocketpp::frame::opcode::text);
+                    return;
+                }
+                
+                // 可选：发送进度更新消息
+                if (elapsed_ms % 1000 == 0) { // 每秒发送一次进度更新
+                    int progress = (elapsed_ms * 100) / total_delay_ms;
+                    std::cout << "测量进度: " << progress << "% 完成" << std::endl;
+                    
+                    // 如果需要向客户端发送进度更新，可以在这里添加代码
+                }
+            }
 
-            // 测量完成，发送完成状态
-            sendMeasurementComplete(hdl, requestId, params);
+            // 如果测量完成（未被中断），发送完成状态
+            if (m_is_measuring) {
+                // 测量完成，发送完成状态
+                sendMeasurementComplete(hdl, requestId, params);
+            }
         }
     }).detach();
 }

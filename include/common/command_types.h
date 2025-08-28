@@ -13,7 +13,7 @@ enum class CommandType {
     GetAlignViewMode,   // 获取取流模式
     StartStream,        // 开始取流
     StopStream,         // 停止取流
-    ExcuteMeasurement,  // 测量命令
+    ExcuteMeasure,  // 测量命令
     StopMeasure,        // 停止测量
     GetMeasureStatus,   // 获取测量状态
     GetSurfaceData,     // 获取面形数据

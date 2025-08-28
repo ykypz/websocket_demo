@@ -232,7 +232,7 @@ CommandResult DeviceClient::stopStream() { return sendCommand(CommandType::StopS
 // 开始测量
 CommandResult DeviceClient::executeMeasurement(bool isBlocking) {
     // 使用sendBlockingCommand，支持阻塞/非阻塞模式
-    return sendBlockingCommand(CommandType::ExcuteMeasurement, json(), 30, isBlocking);
+    return sendBlockingCommand(CommandType::ExcuteMeasure, json(), 30, isBlocking);
 }
 
 // 停止测量

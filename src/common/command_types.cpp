@@ -7,7 +7,7 @@ std::string commandTypeToString(CommandType type) {
         case CommandType::GetAlignViewMode: return "getAlignViewMode";
         case CommandType::StartStream: return "startStream";
         case CommandType::StopStream: return "stopStream";
-        case CommandType::ExcuteMeasurement: return "executeMeasure";
+        case CommandType::ExcuteMeasure: return "executeMeasure";
         case CommandType::StopMeasure: return "stopMeasure";
         case CommandType::GetMeasureStatus: return "getMeasureStatus";
         case CommandType::GetSurfaceData: return "getSurfaceData";
@@ -22,7 +22,7 @@ CommandType stringToCommandType(const std::string& typeStr) {
     if (typeStr == "getAlignViewMode") return CommandType::GetAlignViewMode;
     if (typeStr == "startStream") return CommandType::StartStream;
     if (typeStr == "stopStream") return CommandType::StopStream;
-    if (typeStr == "executeMeasure") return CommandType::ExcuteMeasurement;
+    if (typeStr == "executeMeasure") return CommandType::ExcuteMeasure;
     if (typeStr == "stopMeasure") return CommandType::StopMeasure;
     if (typeStr == "getMeasureStatus") return CommandType::GetMeasureStatus;
     if (typeStr == "getSurfaceData") return CommandType::GetSurfaceData;
