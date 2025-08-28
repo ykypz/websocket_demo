@@ -195,6 +195,15 @@ CommandResult DeviceClient::sendBlockingCommand(CommandType cmdType,
     std::lock_guard<std::mutex> lock(m_pending_mutex);
     if (m_pending_requests.count(requestId) > 0) {
         auto temp_result = *m_pending_requests[requestId].result;
+        
+        // 如果是非阻塞模式的命令，且已经收到了pending响应
+        if (!isBlocking && m_pending_requests[requestId].pendingReceived) {
+            // 不从映射表中移除请求，因为后续可能会收到最终结果
+            // 但要返回当前的结果（pending状态）
+            return temp_result;
+        }
+        
+        // 否则，移除请求并返回结果
         m_pending_requests.erase(requestId);
         return temp_result;
     } else {
@@ -347,18 +356,21 @@ void DeviceClient::handleMeasureResponse(PendingRequestsIterator it, const json&
         // 标记已收到pending响应
         it->second.pendingReceived = true;
 
-        // 如果是非阻塞模式，通知等待线程并移除请求
+        // 如果是非阻塞模式，通知等待线程但不移除请求
         if (!isBlocking) {
             // 通知等待线程，让sendBlockingCommand方法返回
             it->second.promise->set_value();
-
-            // 从映射表中移除请求（非阻塞模式下，此时已经完成请求处理）
-            m_pending_requests.erase(it);
         }
         // 如果是阻塞模式，不通知等待线程，继续等待最终结果
     } else if (status == "success") {
         // 收到"成功"的状态
         std::cout << "Measurement completed successfully for request: " << requestId << std::endl;
+
+        // 设置结果状态为"处理完成"
+        it->second.result->completed = true;  // 表示命令已被成功接收
+        it->second.result->timeout = false;
+        it->second.result->data = {{"status", "success"},
+                                   {"message", "Measurement request completed"}};
 
         // 检查请求是否仍在映射表中
         if (m_pending_requests.count(requestId) > 0) {
@@ -368,11 +380,16 @@ void DeviceClient::handleMeasureResponse(PendingRequestsIterator it, const json&
                 it->second.result->data = message["data"];
             }
 
-            // 通知等待线程
-            it->second.promise->set_value();
-
-            // 从映射表中移除请求
-            m_pending_requests.erase(it);
+            // 如果是阻塞模式，且已经收到过pending响应，则唤醒阻塞的发送线程
+            if (isBlocking && it->second.pendingReceived) {
+               it->second.promise->set_value();
+            }       
+            
+            // 如果是非阻塞模式，且已经收到过pending响应，则删除请求
+            // 因为非阻塞模式下主线程已经返回，这里可以安全删除
+            if (!isBlocking && it->second.pendingReceived) {
+                m_pending_requests.erase(it);
+            }
         }
     } else if (status == "error") {
         // 处理错误状态
@@ -395,8 +412,11 @@ void DeviceClient::handleMeasureResponse(PendingRequestsIterator it, const json&
             // 通知等待线程
             it->second.promise->set_value();
 
-            // 从映射表中移除请求
-            m_pending_requests.erase(it);
+            // 如果是非阻塞模式，且已经收到过pending响应，则删除请求
+            // 因为非阻塞模式下主线程已经返回，这里可以安全删除
+            if (!isBlocking && it->second.pendingReceived) {
+                m_pending_requests.erase(it);
+            }
         }
     } else if (status == "timeout") {
         // 处理超时状态
@@ -412,8 +432,11 @@ void DeviceClient::handleMeasureResponse(PendingRequestsIterator it, const json&
             // 通知等待线程
             it->second.promise->set_value();
 
-            // 从映射表中移除请求
-            m_pending_requests.erase(it);
+            // 如果是非阻塞模式，且已经收到过pending响应，则删除请求
+            // 因为非阻塞模式下主线程已经返回，这里可以安全删除
+            if (!isBlocking && it->second.pendingReceived) {
+                m_pending_requests.erase(it);
+            }
         }
     }
 }

@@ -75,30 +75,26 @@ void DeviceServer::onMessage(connection_hdl hdl, message_ptr msg) {
                   << ")" << std::endl;
 
         // 根据命令类型分发处理
-        if (command == "executeMeasure") {
-            // 处理测量请求
-            json params = message.value("params", json());
-            handleMeasureRequest(hdl, requestId, params);
-        } else if (command == "setAlignViewMode") {
-            // 处理设置观察模式请求
+        if (command == "setAlignViewMode") {
             json params = message.value("params", json());
             handleSetStreamMode(hdl, requestId, params);
         } else if (command == "getAlignViewMode") {
-            // 处理获取观察模式请求
             handleGetStreamMode(hdl, requestId);
-        } else if (command == "getMeasureStatus") {
-            // 处理获取设备状态请求
-            handleDeviceStatus(hdl, requestId);
         } else if (command == "startStream") {
-            // 处理开始取流请求
             json params = message.value("params", json());
             handleStartStream(hdl, requestId, params);
         } else if (command == "stopStream") {
-            // 处理停止取流请求
             handleStopStream(hdl, requestId);
+        } else if (command == "executeMeasure") {
+            json params = message.value("params", json());
+            handleMeasureRequest(hdl, requestId, params);
         } else if (command == "stopMeasure") {
-            // 处理停止测量请求
             handleStopMeasure(hdl, requestId);
+        } else if (command == "getMeasureStatus") {
+            handleMeasureStatus(hdl, requestId);
+        } else if (command == "getSufaceData") {
+            // 处理获取设备状态请求
+            handleMeasureStatus(hdl, requestId);
         } else {
             // 未知命令类型
             json response = {{"command", command},
@@ -196,7 +192,7 @@ void DeviceServer::handleGetStreamMode(connection_hdl hdl, const std::string& re
 }
 
 // 处理获取设备状态请求
-void DeviceServer::handleDeviceStatus(connection_hdl hdl, const std::string& requestId) {
+void DeviceServer::handleMeasureStatus(connection_hdl hdl, const std::string& requestId) {
     std::string readableTime = parseTimestampId(requestId);
     std::cout << "处理获取设备状态请求: " << requestId << " (" << readableTime << ")" << std::endl;
 
@@ -385,38 +381,11 @@ void DeviceServer::sendMeasurementComplete(connection_hdl hdl,
                                            const std::string& requestId,
                                            const json& params) {
     std::string readableTime = parseTimestampId(requestId);
-    // 创建一个包含测量结果的响应
-    json result;
-
-    // 根据不同的测量模式和精度生成不同的结果
-    if (params["mode"] == "standard") {
-        result = {{"value", 42.5},
-                  {"unit", "mm"},
-                  {"precision", params["precision"]},
-                  {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()}};
-    } else if (params["mode"] == "quick") {
-        result = {{"value", 37.2},
-                  {"unit", "mm"},
-                  {"precision", params["precision"]},
-                  {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()}};
-    } else if (params["mode"] == "detailed") {
-        result = {{"value", 42.567},
-                  {"unit", "mm"},
-                  {"precision", params["precision"]},
-                  {"details", {{"min", 42.1}, {"max", 43.0}, {"stdDev", 0.23}}},
-                  {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()}};
-    } else {
-        // 默认结果
-        result = {{"value", 0.0},
-                  {"unit", "mm"},
-                  {"errorMessage", "Unknown measurement mode"},
-                  {"timestamp", std::chrono::system_clock::now().time_since_epoch().count()}};
-    }
 
     json response = {{"command", "executeMeasure"},
                      {"requestId", requestId},
                      {"status", "success"},
-                     {"data", result}};
+                     };
 
     try {
         m_server.send(hdl, response.dump(), websocketpp::frame::opcode::text);
@@ -439,20 +408,7 @@ void DeviceServer::startMeasurement(connection_hdl hdl,
         // 设置测量状态
         m_is_measuring = true;
 
-        // 根据不同的测量模式和精度，模拟不同的测量时间
         int delay_seconds = 2;  // 默认延迟
-
-        if (params["mode"] == "quick") {
-            delay_seconds = 1;
-        } else if (params["mode"] == "standard") {
-            delay_seconds = 3;
-        } else if (params["mode"] == "detailed") {
-            delay_seconds = 5;
-        }
-
-        if (params["precision"] == "high" || params["precision"] == "very-high") {
-            delay_seconds += 1;
-        }
 
         std::cout << "处理测量请求: " << requestId << " (" << readableTime << "), "
                   << "延迟: " << delay_seconds << "秒" << std::endl;

@@ -45,7 +45,7 @@ private:
     void handleGetStreamMode(connection_hdl hdl, const std::string& requestId);
     
     // 处理获取设备状态请求
-    void handleDeviceStatus(connection_hdl hdl, const std::string& requestId);
+    void handleMeasureStatus(connection_hdl hdl, const std::string& requestId);
     
     // 处理校准请求
     void handleCalibrate(connection_hdl hdl, const std::string& requestId, const json& params);

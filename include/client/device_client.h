@@ -59,7 +59,7 @@ public:
     // isBlocking:
     //   - true: 函数会等待测量完成，直到收到success或error响应后返回
     //   - false: 函数在收到pending响应后立即返回，可以通过getMeasureStatus检查测量状态
-    CommandResult executeMeasurement(bool isBlocking = false);
+    CommandResult executeMeasurement(bool isBlocking = true);
     // 停止测量
     CommandResult stopMeasure();
     // 查询测量状态
