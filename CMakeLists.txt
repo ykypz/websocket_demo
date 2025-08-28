@@ -12,14 +12,16 @@ endif()
 # 查找必要的依赖包
 find_package(Threads REQUIRED)
 
+# 添加第三方库的包含目录
+include_directories(${CMAKE_SOURCE_DIR}/third_party)
+include_directories(${CMAKE_SOURCE_DIR}/third_party/nlohmann)
+include_directories(${CMAKE_SOURCE_DIR}/third_party/websocketpp)
+include_directories(${CMAKE_SOURCE_DIR}/third_party/asio/asio/include)
+
 # 添加包含目录
-include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/include/common)
 include_directories(${CMAKE_SOURCE_DIR}/include/client)
 include_directories(${CMAKE_SOURCE_DIR}/include/server)
-include_directories(${CMAKE_SOURCE_DIR}/include/nlohmann)
-include_directories(${CMAKE_SOURCE_DIR}/include/websocketpp)
-include_directories(${CMAKE_SOURCE_DIR}/include/asio-asio-1-24-0/asio/include)
 
 # 公共源文件
 set(COMMON_SOURCES
