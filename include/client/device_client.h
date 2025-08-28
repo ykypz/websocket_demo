@@ -31,6 +31,8 @@ private:
         CommandType cmdType;                          // 命令类型
         std::shared_ptr<std::promise<void>> promise;  // 用于异步等待的promise
         std::shared_ptr<CommandResult> result;        // 命令执行结果
+        bool isBlocking = false;                      // 是否为阻塞模式
+        bool pendingReceived = false;                 // 是否已收到pending响应
     };
 
     // 迭代器类型定义
@@ -54,16 +56,30 @@ public:
     // 停止视频流
     CommandResult stopStream();
     // 开始测量
-    CommandResult executeMeasurement();
+    // isBlocking:
+    //   - true: 函数会等待测量完成，直到收到success或error响应后返回
+    //   - false: 函数在收到pending响应后立即返回，可以通过getMeasureStatus检查测量状态
+    CommandResult executeMeasurement(bool isBlocking = false);
     // 停止测量
     CommandResult stopMeasure();
     // 查询测量状态
     CommandResult getMeasureStatus();
     // 获取面形数据
     CommandResult getSurfaceData();
-  
+
     // 发送通用命令并等待响应
-    CommandResult sendCommand(CommandType cmdType, const json &params = json(), int timeout_sec = 3);
+    CommandResult sendCommand(CommandType cmdType,
+                              const json &params = json(),
+                              int timeout_sec = 3);
+
+    // 发送可能需要长时间处理的命令并支持阻塞/非阻塞模式
+    // isBlocking:
+    //   - true: 阻塞模式，等待完整操作完成（成功/失败），适用于需要等待最终结果的场景
+    //   - false: 非阻塞模式，收到pending状态后立即返回，适用于启动长时间操作后不需要等待结果的场景
+    CommandResult sendBlockingCommand(CommandType cmdType,
+                                      const json &params = json(),
+                                      int timeout_sec = 30,
+                                      bool isBlocking = false);
 
 private:
     void onOpen(connection_hdl hdl);
